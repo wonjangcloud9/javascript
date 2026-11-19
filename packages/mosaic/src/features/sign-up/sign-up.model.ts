@@ -1,3 +1,5 @@
+import { getAlternativePhoneCodeProviderData } from '@clerk/shared/alternativePhoneCode';
+import { iconImageUrl } from '@clerk/shared/constants';
 import type { ClerkError } from '@clerk/shared/error';
 import { isClerkAPIResponseError } from '@clerk/shared/error';
 import { actionBlockedDetailsFrom } from '@clerk/shared/internal/clerk-js/actionBlocked';
@@ -14,11 +16,12 @@ import {
   emailOrPhone,
   getInitialActiveIdentifier,
 } from '@clerk/shared/internal/clerk-js/signUpFormFields';
+import { getPreferredPhoneCodeChannelByCountry } from '@clerk/shared/phone';
 import { __internal_useClerkSignal, useClerk, useSession } from '@clerk/shared/react';
-import type { SessionTask, SignUpField, SignUpFutureResource, SignUpInitialValues } from '@clerk/shared/types';
+import type { PhoneCodeChannel, SessionTask, SignUpField, SignUpFutureResource, SignUpInitialValues } from '@clerk/shared/types';
 import { useMemo, useRef } from 'react';
 
-import type { AuthActionBlockedDetails } from '../../blocks/auth';
+import type { AuthActionBlockedDetails, AuthProvider } from '../../blocks/auth';
 import type { FieldFeedback } from '../../components/form';
 import { FormSubmitError } from '../../components/form';
 import { useMosaicEnvironment } from '../../hooks/use-mosaic-environment';
@@ -86,14 +89,16 @@ export interface SignUpDetailsModel {
   legalConsent?: SignUpLegalConsent;
   continueLegalConsent?: SignUpLegalConsent;
   validatePassword: (password: string) => Promise<FieldFeedback | undefined>;
-  create: (values: SignUpDetailsValues) => Promise<SignUpNextStep>;
+  alternativeChannels: Array<AuthProvider & { id: PhoneCodeChannel }>;
+  create: (values: SignUpDetailsValues, options?: { channel?: PhoneCodeChannel }) => Promise<SignUpNextStep>;
   update: (values: SignUpDetailsValues) => Promise<SignUpNextStep>;
 }
 
 export interface SignUpVerificationModel {
   target: string;
   needsCode: boolean;
-  send: () => Promise<void>;
+  provider?: string;
+  send: (options?: { channel?: PhoneCodeChannel }) => Promise<void>;
   verify: (code: string) => Promise<SignUpNextStep>;
 }
 
@@ -339,6 +344,13 @@ export function useSignUpModel({
     : undefined;
 
   const step = flowStep();
+  const phoneChannel = signUp.verifications.phoneNumber.channel;
+  const preferredPhoneChannel = () => {
+    const { preferredChannels } = environment.authConfig;
+    return signUp.phoneNumber && preferredChannels
+      ? (getPreferredPhoneCodeChannelByCountry(signUp.phoneNumber, preferredChannels) ?? undefined)
+      : undefined;
+  };
 
   return {
     status: 'ready',
@@ -426,8 +438,15 @@ export function useSignUpModel({
       legalConsent,
       continueLegalConsent: signUp.missingFields.includes('legal_accepted') ? legalConsent : undefined,
       validatePassword,
-      create: async values => {
+      alternativeChannels: userSettings.alternativePhoneCodeChannels.flatMap(channel => {
+        const provider = getAlternativePhoneCodeProviderData(channel);
+        return provider ? [{ id: channel, name: provider.name, iconUrl: iconImageUrl(channel) }] : [];
+      }),
+      create: async (values, { channel } = {}) => {
         await save(() => run(() => signUp.create(details(values))), DETAILS_FIELDS, usernameBounds);
+        if (channel) {
+          await run(() => signUp.verifications.sendPhoneCode({ channel }));
+        }
         return next(signUp);
       },
       update: async values => {
@@ -481,7 +500,11 @@ export function useSignUpModel({
       phone: {
         target: signUp.phoneNumber ?? '',
         needsCode: step.type === 'verify_phone' && !step.sent,
-        send: () => run(() => signUp.verifications.sendPhoneCode()),
+        provider: getAlternativePhoneCodeProviderData(phoneChannel)?.name,
+        send: ({ channel } = {}) =>
+          run(() =>
+            signUp.verifications.sendPhoneCode({ channel: channel ?? phoneChannel ?? preferredPhoneChannel() }),
+          ),
         verify: async code => {
           await save(() => run(() => signUp.verifications.verifyPhoneCode({ code })), ['code']);
           return next(signUp);
