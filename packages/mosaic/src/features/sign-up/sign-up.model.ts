@@ -9,6 +9,7 @@ import { validate as validateComplexity } from '@clerk/shared/internal/clerk-js/
 import { createLoadZxcvbn } from '@clerk/shared/internal/clerk-js/passwords/loadZxcvbn';
 import { createValidatePasswordStrength } from '@clerk/shared/internal/clerk-js/passwords/strength';
 import { runProtectCheck } from '@clerk/shared/internal/clerk-js/protectCheckRunner';
+import { getClerkQueryParam, removeClerkQueryParam } from '@clerk/shared/internal/clerk-js/queryParams';
 import { buildTaskUrl } from '@clerk/shared/internal/clerk-js/sessionTasks';
 import type { ActiveIdentifier } from '@clerk/shared/internal/clerk-js/signUpFormFields';
 import {
@@ -69,6 +70,8 @@ export interface SignUpFlowModel {
   actionBlocked?: AuthActionBlockedDetails;
   afterSignUpUrl: string;
   leave?: () => void;
+  ticket: string | undefined;
+  redeemTicket: () => Promise<{ step: SignUpNextStep; emailAddress: string }>;
   finalize: () => Promise<void>;
   reset: () => Promise<void>;
 }
@@ -96,6 +99,7 @@ export interface SignUpDetailsModel {
   continueLegalConsent?: SignUpLegalConsent;
   validatePassword: (password: string) => Promise<FieldFeedback | undefined>;
   alternativeChannels: Array<AuthProvider & { id: PhoneCodeChannel }>;
+  startUpdatesSignUp: boolean;
   create: (values: SignUpDetailsValues, options?: { channel?: PhoneCodeChannel }) => Promise<SignUpNextStep>;
   update: (values: SignUpDetailsValues) => Promise<SignUpNextStep>;
 }
@@ -313,10 +317,19 @@ export function useSignUpModel({
   const isShown = (name: SignUpFieldName, required: boolean) =>
     showOptionalFields || required || (canSwitchIdentifier && (name === 'emailAddress' || name === 'phoneNumber'));
 
+  const ticket = getClerkQueryParam('__clerk_ticket') || getClerkQueryParam('__clerk_invitation_token') || undefined;
+  const inTicketSignUp = Boolean(ticket && signUp.id);
+  const forgetTicket = () => {
+    removeClerkQueryParam('__clerk_ticket');
+    removeClerkQueryParam('__clerk_invitation_token');
+  };
+
   const activeFields = (identifier: SignUpIdentifier) =>
     determineActiveFields({
       attributes,
       activeCommIdentifierType: identifier,
+      hasTicket: inTicketSignUp,
+      hasEmail: Boolean(prefill.emailAddress),
       isProgressiveSignUp,
       legalConsentRequired,
     });
@@ -380,7 +393,17 @@ export function useSignUpModel({
             void router.navigate(task ? taskUrl(task) : afterSignUpUrl);
           }
         : undefined,
+      ticket,
+      redeemTicket: async () => {
+        const { error } = await signUp.ticket({ ticket: ticket ?? '', unsafeMetadata });
+        if (error) {
+          forgetTicket();
+          throw error;
+        }
+        return { step: next(signUp), emailAddress: signUp.emailAddress ?? '' };
+      },
       finalize: async () => {
+        forgetTicket();
         await run(() =>
           signUp.finalize({
             navigate: async ({ session: created, decorateUrl }) => {
@@ -444,10 +467,13 @@ export function useSignUpModel({
       legalConsent,
       continueLegalConsent: signUp.missingFields.includes('legal_accepted') ? legalConsent : undefined,
       validatePassword,
-      alternativeChannels: userSettings.alternativePhoneCodeChannels.flatMap(channel => {
-        const provider = getAlternativePhoneCodeProviderData(channel);
-        return provider ? [{ id: channel, name: provider.name, iconUrl: iconImageUrl(channel) }] : [];
-      }),
+      startUpdatesSignUp: inTicketSignUp,
+      alternativeChannels: inTicketSignUp
+        ? []
+        : userSettings.alternativePhoneCodeChannels.flatMap(channel => {
+            const provider = getAlternativePhoneCodeProviderData(channel);
+            return provider ? [{ id: channel, name: provider.name, iconUrl: iconImageUrl(channel) }] : [];
+          }),
       create: async (values, { channel } = {}) => {
         const sendOver = channel ?? preferredPhoneChannel(values.phoneNumber);
         await save(

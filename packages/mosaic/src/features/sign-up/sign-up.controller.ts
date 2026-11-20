@@ -1,5 +1,5 @@
 import type { SignUpNextStep } from '@clerk/shared/internal/clerk-js/nextStep';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { usePendingAction } from '../../hooks/use-pending-action';
 import type { ErrorDescription } from '../../localization';
@@ -102,7 +102,8 @@ export function useSignUpController(
   { isTaskReady, ...options }: MosaicLocationOptions & { isTaskReady: boolean },
 ): SignUpControllerResult {
   const { route, go } = useRouterScope(signUpRoutes, { ...options, root: 'start' });
-  const actions = usePendingAction<'startOver'>();
+  const actions = usePendingAction<'startOver' | 'ticket'>();
+  const redeemedTicket = useRef<string | undefined>(undefined);
   const errorText = useErrorText();
   const liveStep = liveModel.flow.step;
   const isNextScreenLoading = liveStep.type === 'leaving' || (liveStep.type === 'task' && !isTaskReady);
@@ -126,7 +127,7 @@ export function useSignUpController(
   const isFinishing = finishSnapshot.value === 'finishing' || finishSnapshot.value === 'handingOff';
   const isHidden = liveStep.type === 'signed_in' && (leavesOnArrival || finishSnapshot.value === 'finished');
   const shown = shownRoute(route, flow.step.type === 'signed_in' && !arrivedSignedIn ? { type: 'leaving' } : flow.step);
-  const screen = screenFor(shown, flow);
+  const screen = actions.pendingKey === 'ticket' ? 'loading' : screenFor(shown, flow);
 
   useRouteGuard({ route, go }, shown);
 
@@ -152,6 +153,20 @@ export function useSignUpController(
     onNext: next,
     onSignIn: navigation.goToSignIn,
   });
+  /* eslint-disable react-you-might-not-need-an-effect/no-event-handler -- Redeems the invitation once when sign-up opens on start with a ticket in the URL; arriving from the invitation link is not an event a handler could run from. */
+  useEffect(() => {
+    if (!flow.ticket || flow.signUpId || route !== 'start' || redeemedTicket.current === flow.ticket) {
+      return;
+    }
+    redeemedTicket.current = flow.ticket;
+    void actions.run('ticket', async () => {
+      const { step, emailAddress } = await flow.redeemTicket();
+      details.adoptInvitation(emailAddress);
+      next(step);
+    });
+  });
+  /* eslint-enable react-you-might-not-need-an-effect/no-event-handler */
+
   const verify = {
     onNext: next,
     isPending: isFinishing,
