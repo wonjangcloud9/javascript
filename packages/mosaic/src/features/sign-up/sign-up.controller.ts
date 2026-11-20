@@ -81,7 +81,7 @@ function screenFor(route: SignUpRoute | undefined, flow: SignUpFlowModel): SignU
   if (route !== 'start') {
     return route;
   }
-  return flow.mode === 'public' ? 'start' : flow.mode;
+  return flow.mode === 'public' || flow.ticket ? 'start' : flow.mode;
 }
 
 type SignUpControllerResult =
@@ -150,12 +150,13 @@ export function useSignUpController(
     purpose: screen === 'continue' ? 'continue' : 'start',
     isBusy: actions.isPending || isFinishing,
     globalErrorMessage: flowError,
+    onSubmit: actions.reset,
     onNext: next,
     onSignIn: navigation.goToSignIn,
   });
   /* eslint-disable react-you-might-not-need-an-effect/no-event-handler -- Redeems the invitation once when sign-up opens on start with a ticket in the URL; arriving from the invitation link is not an event a handler could run from. */
   useEffect(() => {
-    if (!flow.ticket || flow.signUpId || route !== 'start' || redeemedTicket.current === flow.ticket) {
+    if (!flow.ticket || flow.inTicketSignUp || route !== 'start' || redeemedTicket.current === flow.ticket) {
       return;
     }
     redeemedTicket.current = flow.ticket;
