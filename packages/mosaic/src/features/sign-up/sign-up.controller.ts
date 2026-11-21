@@ -102,8 +102,9 @@ export function useSignUpController(
   { isTaskReady, ...options }: MosaicLocationOptions & { isTaskReady: boolean },
 ): SignUpControllerResult {
   const { route, go } = useRouterScope(signUpRoutes, { ...options, root: 'start' });
-  const actions = usePendingAction<'startOver' | 'ticket'>();
+  const actions = usePendingAction<'startOver' | 'ticket' | 'return'>();
   const redeemedTicket = useRef<string | undefined>(undefined);
+  const completedReturn = useRef(false);
   const errorText = useErrorText();
   const liveStep = liveModel.flow.step;
   const isNextScreenLoading = liveStep.type === 'leaving' || (liveStep.type === 'task' && !isTaskReady);
@@ -127,7 +128,8 @@ export function useSignUpController(
   const isFinishing = finishSnapshot.value === 'finishing' || finishSnapshot.value === 'handingOff';
   const isHidden = liveStep.type === 'signed_in' && (leavesOnArrival || finishSnapshot.value === 'finished');
   const shown = shownRoute(route, flow.step.type === 'signed_in' && !arrivedSignedIn ? { type: 'leaving' } : flow.step);
-  const screen = actions.pendingKey === 'ticket' ? 'loading' : screenFor(shown, flow);
+  const screen =
+    actions.pendingKey === 'ticket' || actions.pendingKey === 'return' ? 'loading' : screenFor(shown, flow);
 
   useRouteGuard({ route, go }, shown);
 
@@ -154,9 +156,25 @@ export function useSignUpController(
     onNext: next,
     onSignIn: navigation.goToSignIn,
   });
-  /* eslint-disable react-you-might-not-need-an-effect/no-event-handler -- Redeems the invitation once when sign-up opens on start with a ticket in the URL; arriving from the invitation link is not an event a handler could run from. */
+  /* eslint-disable react-you-might-not-need-an-effect/no-event-handler -- Completes an OAuth return, or redeems an invitation, once when sign-up opens on start with its marker or ticket in the URL; arriving from a redirect or a link is not an event a handler could run from. */
   useEffect(() => {
-    if (!flow.ticket || flow.inTicketSignUp || route !== 'start' || redeemedTicket.current === flow.ticket) {
+    if (flow.isReturning && route === 'start' && !completedReturn.current) {
+      completedReturn.current = true;
+      void actions.run('return', async () => {
+        const step = await flow.completeReturn();
+        if (step) {
+          next(step);
+        }
+      });
+      return;
+    }
+    if (
+      flow.isReturning ||
+      !flow.ticket ||
+      flow.inTicketSignUp ||
+      route !== 'start' ||
+      redeemedTicket.current === flow.ticket
+    ) {
       return;
     }
     redeemedTicket.current = flow.ticket;
