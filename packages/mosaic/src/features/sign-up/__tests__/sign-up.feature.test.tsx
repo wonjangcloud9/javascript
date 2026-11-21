@@ -1231,6 +1231,7 @@ export default (container, { setWidgetVisible }) => {
 
     expect(await screen.findByRole('heading', { name: 'Verify your phone' })).toBeInTheDocument();
     expect(fapi.signUp.preparations).toEqual(['phone_code:whatsapp', 'phone_code:sms']);
+    await codeSent();
   });
 
   it('returns from the WhatsApp phone screen to the form', async () => {
