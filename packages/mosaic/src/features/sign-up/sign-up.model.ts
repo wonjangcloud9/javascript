@@ -166,6 +166,17 @@ function forgetReturn(): void {
   }
 }
 
+function continueProviders<T extends AuthProvider & { id: OAuthStrategy }>(
+  signUp: SignUpFutureResource,
+  providers: T[],
+): T[] {
+  if (signUp.verifications.externalAccount.status === 'verified') {
+    return [];
+  }
+  const missing = providers.filter(provider => signUp.missingFields.includes(provider.id));
+  return missing.length > 0 ? missing : providers;
+}
+
 function oauthProvidersFrom(userSettings: UserSettingsResource): Array<AuthProvider & { id: OAuthStrategy }> {
   return userSettings.authenticatableSocialStrategies
     .flatMap(strategy => {
@@ -216,11 +227,12 @@ function missingIdentifiers({ missingFields, optionalFields }: SignUpFieldLists)
 
 const CONTINUE_REQUIREMENTS: readonly SignUpField[] = ['legal_accepted', 'email_address_or_phone_number'];
 
-function continueCanSatisfy(signUp: SignUpFieldLists): boolean {
+function continueCanSatisfy(signUp: SignUpFieldLists, providers: readonly string[]): boolean {
   const asksForIdentifier = missingIdentifiers(signUp).length > 0;
   return signUp.missingFields.every(
     field =>
       field in MISSING_FORM_FIELDS ||
+      providers.includes(field) ||
       CONTINUE_REQUIREMENTS.includes(field) ||
       (asksForIdentifier && signUp.optionalFields.includes(field)),
   );
@@ -328,6 +340,8 @@ export function useSignUpModel({
   const isProgressiveSignUp = userSettings.signUp.progressive;
   const legalConsentRequired = userSettings.signUp.legal_consent_enabled;
   const canSwitchIdentifier = emailOrPhone(attributes, isProgressiveSignUp);
+  const oauthProviders = oauthProvidersFrom(userSettings);
+  const providerIds = oauthProviders.map(provider => provider.id);
 
   const next = (resource: SignUpFutureResource): SignUpNextStep => {
     const step = getSignUpNextStep(resource);
@@ -337,7 +351,7 @@ export function useSignUpModel({
     ) {
       return { type: 'unknown' };
     }
-    return step.type === 'fields' && !continueCanSatisfy(resource) ? { type: 'unknown' } : step;
+    return step.type === 'fields' && !continueCanSatisfy(resource, providerIds) ? { type: 'unknown' } : step;
   };
 
   const flowStep = (): SignUpFlowStep => {
@@ -362,7 +376,6 @@ export function useSignUpModel({
   const ticket = getClerkQueryParam('__clerk_ticket') || getClerkQueryParam('__clerk_invitation_token') || undefined;
   const inTicketSignUp = Boolean(ticket) && signUp.verifications.emailAddress.strategy === 'ticket';
   const phoneCodeChannels = inTicketSignUp ? [] : userSettings.alternativePhoneCodeChannels;
-  const oauthProviders = oauthProvidersFrom(userSettings);
   const forgetTicket = () => {
     removeClerkQueryParam('__clerk_ticket');
     removeClerkQueryParam('__clerk_invitation_token');
@@ -553,7 +566,7 @@ export function useSignUpModel({
       validatePassword,
       startUpdatesSignUp: inTicketSignUp,
       oauthProviders,
-      continueOAuthProviders: signUp.verifications.externalAccount.status === 'verified' ? [] : oauthProviders,
+      continueOAuthProviders: continueProviders(signUp, oauthProviders),
       sso: async (strategy, { legalAccepted, continueSignUp }) => {
         if (signUp.id && !continueSignUp && !inTicketSignUp) {
           await run(() => signUp.reset());
