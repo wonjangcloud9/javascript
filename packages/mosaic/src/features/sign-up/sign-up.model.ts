@@ -577,7 +577,7 @@ export function useSignUpModel({
         }
         return { step: next(signUp), emailAddress: signUp.emailAddress ?? '' };
       },
-      isReturning: new URL(window.location.href).searchParams.get(RETURN_PARAM) === SSO_RETURN,
+      isReturning: query.get(RETURN_PARAM) === SSO_RETURN,
       completeReturn: () => {
         forgetReturn();
         return completeOAuth(signUp, oauthOutcome);
