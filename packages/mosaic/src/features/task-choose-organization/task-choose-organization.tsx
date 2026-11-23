@@ -12,7 +12,7 @@ import {
   useTaskChooseOrganizationController,
   useTaskChooseOrganizationScreenController,
 } from './task-choose-organization.controller';
-import type { TaskChooseOrganizationModelOptions } from './task-choose-organization.model';
+import type { TaskChooseOrganizationModel, TaskChooseOrganizationModelOptions } from './task-choose-organization.model';
 import { useTaskChooseOrganizationModel } from './task-choose-organization.model';
 import {
   TaskChooseOrganizationSkeleton,
@@ -42,32 +42,38 @@ export type TaskChooseOrganizationProps = TaskChooseOrganizationModelOptions & {
  * <TaskChooseOrganization redirectUrlComplete='/dashboard' />
  * ```
  */
-export function TaskChooseOrganization(props: TaskChooseOrganizationProps): ReactElement | null {
-  return <TaskChooseOrganizationFlow {...props} />;
-}
-
-export function TaskChooseOrganizationContent(props: TaskChooseOrganizationProps): ReactElement | null {
+export function TaskChooseOrganization({ fallback, ...options }: TaskChooseOrganizationProps): ReactElement | null {
+  const model = useTaskChooseOrganizationModel(options);
   return (
     <TaskChooseOrganizationFlow
-      {...props}
+      model={model}
+      fallback={fallback}
+    />
+  );
+}
+
+export function TaskChooseOrganizationContent({ model }: { model: TaskChooseOrganizationModel }): ReactElement | null {
+  return (
+    <TaskChooseOrganizationFlow
+      model={model}
       embedded
     />
   );
 }
 
-export function useTaskChooseOrganizationReady(
-  options: TaskChooseOrganizationModelOptions & { enabled: boolean },
-): boolean {
-  const model = useTaskChooseOrganizationModel(options);
+export function isTaskChooseOrganizationReady(model: TaskChooseOrganizationModel): boolean {
   return model.status !== 'loading' && !(model.status === 'ready' && model.organizationsLoading);
 }
 
 function TaskChooseOrganizationFlow({
+  model,
   fallback,
   embedded = false,
-  ...options
-}: TaskChooseOrganizationProps & { embedded?: boolean }): ReactElement | null {
-  const model = useTaskChooseOrganizationModel(options);
+}: {
+  model: TaskChooseOrganizationModel;
+  fallback?: ReactNode;
+  embedded?: boolean;
+}): ReactElement | null {
   const controller = useTaskChooseOrganizationController(model);
 
   if (controller.status === 'ready') {
