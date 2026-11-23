@@ -104,8 +104,6 @@ export function useSignUpController(
   const { route, go } = useRouterScope(signUpRoutes, { ...options, root: 'start' });
   const actions = usePendingAction<'startOver' | 'ticket' | 'return'>();
   const redeemedTicket = useRef<string | undefined>(undefined);
-  const completedReturn = useRef(false);
-  const [isReturning, setIsReturning] = useState(liveModel.flow.isReturning);
   const errorText = useErrorText();
   const liveStep = liveModel.flow.step;
   const isNextScreenLoading = liveStep.type === 'leaving' || (liveStep.type === 'task' && !isTaskReady);
@@ -126,13 +124,12 @@ export function useSignUpController(
 
   const model = finishSnapshot.context.frozenModel ?? liveModel;
   const { flow, navigation, verification } = model;
+  // The marker is in the URL from the first paint, before the effect starts the return. `lastKey` is set once it ran.
+  const isReturning = actions.pendingKey === 'return' || (flow.isReturning && actions.lastKey === undefined);
   const isFinishing = finishSnapshot.value === 'finishing' || finishSnapshot.value === 'handingOff';
   const isHidden = liveStep.type === 'signed_in' && (leavesOnArrival || finishSnapshot.value === 'finished');
   const shown = shownRoute(route, flow.step.type === 'signed_in' && !arrivedSignedIn ? { type: 'leaving' } : flow.step);
-  const screen =
-    isReturning || actions.pendingKey === 'ticket' || actions.pendingKey === 'return'
-      ? 'loading'
-      : screenFor(shown, flow);
+  const screen = isReturning || actions.pendingKey === 'ticket' ? 'loading' : screenFor(shown, flow);
 
   useRouteGuard({ route, go }, shown);
 
@@ -161,16 +158,13 @@ export function useSignUpController(
   });
   /* eslint-disable react-you-might-not-need-an-effect/no-event-handler -- Completes an OAuth return once when sign-up opens with its marker in the URL, on any route, or redeems an invitation once when it opens on start with its ticket; arriving from a redirect or a link is not an event a handler could run from. */
   useEffect(() => {
-    if (isReturning && !completedReturn.current) {
-      completedReturn.current = true;
-      void actions
-        .run('return', async () => {
-          const step = await flow.completeReturn();
-          if (step) {
-            next(step);
-          }
-        })
-        .then(() => setIsReturning(false));
+    if (flow.isReturning && actions.lastKey === undefined) {
+      void actions.run('return', async () => {
+        const step = await flow.completeReturn();
+        if (step) {
+          next(step);
+        }
+      });
       return;
     }
     if (
