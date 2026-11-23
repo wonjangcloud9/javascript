@@ -607,7 +607,7 @@ export function useSignUpModel({
           target.sso({
             strategy,
             redirectCallbackUrl: ssoCallbackUrl(),
-            redirectUrl: clerk.buildAfterSignUpUrl(),
+            redirectUrl: afterSignUpUrl,
             unsafeMetadata,
             legalAccepted: legalAccepted || undefined,
           }),
