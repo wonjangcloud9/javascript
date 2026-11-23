@@ -18,6 +18,7 @@ import {
   fapiUser,
 } from '../../../__tests__/feature/fapi';
 import { renderWithClerk } from '../../../__tests__/feature/render';
+import { MosaicOptionsProvider } from '../../../hooks/use-mosaic-options';
 import type { MosaicLocalization } from '../../../localization';
 import type { OAuthConsentProps } from '../oauth-consent';
 import { OAuthConsent } from '../oauth-consent';
@@ -226,6 +227,196 @@ describe('OAuthConsent', () => {
 
       await ready();
       expect(screen.queryByText(/You'll stay signed in/)).toBeNull();
+    });
+  });
+
+  describe('logos', () => {
+    const OAUTH_LOGO = `${PIXEL}#oauth`;
+    const APP_LOGO = `${PIXEL}#app`;
+    const APP_LOGOMARK = `${PIXEL}#logomark`;
+    const withLogos = (oauthLogo: string, appLogo: string) =>
+      signedIn({
+        oauthConsent: consent({ oauth_application_logo_url: oauthLogo }),
+        environment: fapiEnvironment({ display_config: { logo_image_url: appLogo } }),
+      });
+    const arrow = (container: HTMLElement) => container.querySelector('.cl-card-media .cl-icon');
+    const customLogomark = (
+      <svg
+        role='img'
+        aria-label='Custom logomark'
+      />
+    );
+
+    it('shows the OAuth application logo and the application logo with an arrow between them', async () => {
+      visitOAuthConsent();
+      const { container } = await renderOAuthConsent(withLogos(OAUTH_LOGO, APP_LOGO));
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Linear' })).toHaveAttribute('src', OAUTH_LOGO);
+      expect(await screen.findByRole('img', { name: 'Acme' })).toHaveAttribute('src', APP_LOGO);
+      expect(arrow(container)).not.toBeNull();
+    });
+
+    it('fits the application logo inside the avatar without cropping it', async () => {
+      visitOAuthConsent();
+      await renderOAuthConsent(withLogos(OAUTH_LOGO, APP_LOGO));
+
+      await ready();
+      expect(getComputedStyle(await screen.findByRole('img', { name: 'Acme' })).objectFit).toBe('contain');
+    });
+
+    it('covers the avatar with an options.logomark image', async () => {
+      visitOAuthConsent();
+      await renderOAuthConsent(withLogos(OAUTH_LOGO, APP_LOGO), {
+        options: {
+          logomark: (
+            <img
+              src={PIXEL}
+              alt='Custom logomark'
+            />
+          ),
+        },
+      });
+
+      await ready();
+      expect(getComputedStyle(await screen.findByRole('img', { name: 'Custom logomark' })).objectFit).toBe('cover');
+    });
+
+    it('covers the avatar with the logomark set in the Clerk Dashboard in place of the application logo', async () => {
+      visitOAuthConsent();
+      await renderOAuthConsent(
+        signedIn({
+          oauthConsent: consent({ oauth_application_logo_url: OAUTH_LOGO }),
+          environment: fapiEnvironment({
+            display_config: { logo_image_url: APP_LOGO, logomark_image_url: APP_LOGOMARK },
+          }),
+        }),
+      );
+
+      await ready();
+      const logomark = await screen.findByRole('img', { name: 'Acme' });
+      expect(logomark).toHaveAttribute('src', APP_LOGOMARK);
+      expect(getComputedStyle(logomark).objectFit).toBe('cover');
+    });
+
+    it('prefers options.logomark over the logomark set in the Clerk Dashboard', async () => {
+      visitOAuthConsent();
+      await renderOAuthConsent(
+        signedIn({
+          oauthConsent: consent({ oauth_application_logo_url: OAUTH_LOGO }),
+          environment: fapiEnvironment({
+            display_config: { logo_image_url: APP_LOGO, logomark_image_url: APP_LOGOMARK },
+          }),
+        }),
+        { options: { logomark: customLogomark } },
+      );
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Custom logomark' })).toBeVisible();
+      expect(screen.queryByRole('img', { name: 'Acme' })).toBeNull();
+    });
+
+    it('replaces the application logo with options.logomark', async () => {
+      visitOAuthConsent();
+      await renderOAuthConsent(withLogos(OAUTH_LOGO, APP_LOGO), { options: { logomark: customLogomark } });
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Custom logomark' })).toBeVisible();
+      expect(screen.queryByRole('img', { name: 'Acme' })).toBeNull();
+    });
+
+    it.each([
+      ['no options', undefined],
+      ['options without a logomark', {}],
+    ])('uses the options.logomark from a provider above it when the component passes %s', async (_, options) => {
+      visitOAuthConsent();
+      serveFapi(withLogos(OAUTH_LOGO, APP_LOGO));
+      await renderWithClerk(
+        <MosaicOptionsProvider options={{ logomark: customLogomark }}>
+          <OAuthConsent options={options} />
+        </MosaicOptionsProvider>,
+      );
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Custom logomark' })).toBeVisible();
+      expect(screen.queryByRole('img', { name: 'Acme' })).toBeNull();
+    });
+
+    it('hides the logomark set on a provider above it when the component passes logomark false', async () => {
+      visitOAuthConsent();
+      serveFapi(withLogos(OAUTH_LOGO, APP_LOGO));
+      const { container } = await renderWithClerk(
+        <MosaicOptionsProvider options={{ logomark: customLogomark }}>
+          <OAuthConsent options={{ logomark: false }} />
+        </MosaicOptionsProvider>,
+      );
+
+      await ready();
+      expect(screen.queryByRole('img', { name: 'Custom logomark' })).toBeNull();
+      expect(screen.queryByRole('img', { name: 'Acme' })).toBeNull();
+      expect(arrow(container)).toBeNull();
+    });
+
+    it('hides the application logo and the arrow when options.logomark is false', async () => {
+      visitOAuthConsent();
+      const { container } = await renderOAuthConsent(withLogos(OAUTH_LOGO, APP_LOGO), { options: { logomark: false } });
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Linear' })).toBeVisible();
+      expect(screen.queryByRole('img', { name: 'Acme' })).toBeNull();
+      expect(arrow(container)).toBeNull();
+    });
+
+    it('shows the application logo alone when the OAuth application has no logo', async () => {
+      visitOAuthConsent();
+      const { container } = await renderOAuthConsent(withLogos('', APP_LOGO));
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Acme' })).toBeVisible();
+      expect(screen.queryByRole('img', { name: 'Linear' })).toBeNull();
+      expect(arrow(container)).toBeNull();
+    });
+
+    it.each([
+      ['claude.ai', 'Claude'],
+      ['claude.com', 'Claude'],
+      ['anthropic.com', 'Claude'],
+      ['chatgpt.com', 'ChatGPT'],
+      ['openai.com', 'ChatGPT'],
+      [' Claude.AI ', 'Claude'],
+    ])('shows the %s client logo when the OAuth application has no logo', async (domain, client) => {
+      visitOAuthConsent();
+      const { container } = await renderOAuthConsent(
+        signedIn({
+          oauthConsent: consent({ oauth_application_logo_url: '', redirect_domain: domain }),
+          environment: fapiEnvironment({ display_config: { logo_image_url: APP_LOGO } }),
+        }),
+      );
+
+      await ready();
+      expect(await screen.findByRole('img', { name: client })).toBeVisible();
+      expect(arrow(container)).not.toBeNull();
+    });
+
+    it('prefers the OAuth application logo over a known client logo', async () => {
+      visitOAuthConsent();
+      await renderOAuthConsent(
+        signedIn({
+          oauthConsent: consent({ oauth_application_logo_url: OAUTH_LOGO, redirect_domain: 'claude.ai' }),
+        }),
+      );
+
+      await ready();
+      expect(await screen.findByRole('img', { name: 'Linear' })).toBeVisible();
+      expect(screen.queryByRole('img', { name: 'Claude' })).toBeNull();
+    });
+
+    it('renders no logo row when there are no logos', async () => {
+      visitOAuthConsent();
+      const { container } = await renderOAuthConsent(withLogos('', ''));
+
+      await ready();
+      expect(container.querySelector('.cl-card-media')).toBeNull();
     });
   });
 
