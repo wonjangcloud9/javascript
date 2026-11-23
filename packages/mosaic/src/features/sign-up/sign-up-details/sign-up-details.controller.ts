@@ -140,6 +140,12 @@ export function useSignUpDetailsController(
     onSignIn,
   };
 
+  const switchChannel = (next: PhoneCodeChannel | undefined) => {
+    setChosenChannel(next);
+    // Both screens edit the same phone number, so setting it again clears the error the last screen got.
+    form.setValue('phoneNumber', form.values.phoneNumber);
+  };
+
   const alternativePhone: SignUpAlternativePhoneScreen | undefined = alternativeChannel
     ? {
         channel: alternativeChannel,
@@ -149,7 +155,7 @@ export function useSignUpDetailsController(
         isPending,
         isDisabled: isPending,
         globalErrorMessage: form.error ?? globalErrorMessage,
-        onCancel: () => setChosenChannel(undefined),
+        onCancel: () => switchChannel(undefined),
       }
     : undefined;
 
@@ -164,7 +170,7 @@ export function useSignUpDetailsController(
       onSwitchField: switchField('start'),
       socialProviders: details.alternativeChannels,
       onSelectProvider: (id: string) =>
-        setChosenChannel(details.alternativeChannels.find(provider => provider.id === id)?.id),
+        switchChannel(details.alternativeChannels.find(provider => provider.id === id)?.id),
     },
     continue: {
       ...screen,
@@ -174,7 +180,7 @@ export function useSignUpDetailsController(
       onSelectProvider: () => undefined,
     },
     error: form.error,
-    leaveChannel: () => setChosenChannel(undefined),
+    leaveChannel: () => switchChannel(undefined),
     reset: () => {
       form.reset();
       setChosenChannel(undefined);
