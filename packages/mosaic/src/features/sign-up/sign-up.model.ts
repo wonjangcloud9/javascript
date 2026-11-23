@@ -441,7 +441,9 @@ export function useSignUpModel({
             {
               getProtectCheck: () => signUp.protectCheck,
               getResource: () => signUp,
-              reload: () => run(() => signUp.reload()),
+              // `SignUpFuture` has no `reload`, so this reloads the classic sign-up it wraps. A reload never reissues an
+              // expired check today, so the runner only uses it to confirm the expiry.
+              reload: () => clerk.client?.signUp.reload() ?? Promise.resolve(),
               submitProtectCheck: async params => {
                 await run(() => signUp.submitProtectCheck(params));
                 return signUp;
