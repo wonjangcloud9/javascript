@@ -32,8 +32,8 @@ export interface FakeSignUpSeed {
   sessionTasks?: SessionJSON['tasks'];
   blocked?: Record<string, string>;
   protectChecks?: number;
-  /** The request that raises the Protect check: `create` (default) or the continue screen's `update`. */
-  protectCheckOn?: 'create' | 'update';
+  /** The request that raises the Protect check: `create` (default), the continue screen's `update`, or the return from an OAuth provider. */
+  protectCheckOn?: ProtectCheckOn;
   /** Issue each Protect check already expired. */
   protectCheckExpired?: boolean;
   /** Resolve the Protect check server-side before the proof arrives, as when another tab solved it. */
@@ -55,6 +55,8 @@ export type FakeOAuthAccount =
   | { signedInSession: string }
   | { error: { code: string; message: string } };
 
+type ProtectCheckOn = 'create' | 'update' | 'oauth_callback';
+
 export type FakeTicket = { emailAddress: string } | 'expired';
 
 export interface FakeSignUpState {
@@ -63,7 +65,7 @@ export interface FakeSignUpState {
   sessionTasks: SessionJSON['tasks'];
   blocked?: Record<string, string>;
   protectChecks: number;
-  protectCheckOn?: 'create' | 'update';
+  protectCheckOn?: ProtectCheckOn;
   protectCheckExpired?: boolean;
   protectCheckResolvedElsewhere?: boolean;
   protectCheckBlocked?: Record<string, string>;
@@ -173,7 +175,7 @@ export function signUpHandlers(
       ...(expired ? { expires_at: 1 } : {}),
     };
   };
-  const issueProtectCheck = (signUp: SignUpJSON, on: 'create' | 'update' = 'create'): SignUpJSON => {
+  const issueProtectCheck = (signUp: SignUpJSON, on: ProtectCheckOn = 'create'): SignUpJSON => {
     if (
       (state.signUp.protectCheckOn ?? 'create') !== on ||
       state.signUp.issuedProtectChecks >= state.signUp.protectChecks
@@ -184,6 +186,10 @@ export function signUpHandlers(
   };
   const isExpired = (check: NonNullable<SignUpJSON['protect_check']>) =>
     check.expires_at !== undefined && check.expires_at < Date.now();
+  // clerk_go runProtectCheck (api/shared/sign_up/service.go:2500) returns a pending, unexpired check
+  // unchanged and asks Protect again otherwise.
+  const runProtectCheck = (signUp: SignUpJSON, on: ProtectCheckOn): SignUpJSON =>
+    signUp.protect_check && !isExpired(signUp.protect_check) ? signUp : issueProtectCheck(signUp, on);
 
   // FAPI wraps a sign-up error with the client (clerk_go api/fapi/v1/wrapper/wrapper.go WrapError), and clerk-js applies it.
   const clientError = async (response: Response) => {
@@ -381,22 +387,27 @@ export function signUpHandlers(
     const linked = withExternal({ status: 'verified' });
     state.signUp.linkedStrategy = external.strategy;
     store(
-      settle({
-        ...linked,
-        email_address: signUp.email_address ?? account.emailAddress,
-        first_name: signUp.first_name ?? account.firstName ?? null,
-        last_name: signUp.last_name ?? account.lastName ?? null,
-        verifications: {
-          ...linked.verifications!,
-          email_address: signUp.email_address
-            ? linked.verifications!.email_address
-            : {
-                ...linked.verifications!.email_address,
-                ...fapiVerification(`from_${external.strategy}`, { status: 'verified' }),
-                next_action: '',
-              },
-        },
-      }),
+      settle(
+        runProtectCheck(
+          {
+            ...linked,
+            email_address: signUp.email_address ?? account.emailAddress,
+            first_name: signUp.first_name ?? account.firstName ?? null,
+            last_name: signUp.last_name ?? account.lastName ?? null,
+            verifications: {
+              ...linked.verifications!,
+              email_address: signUp.email_address
+                ? linked.verifications!.email_address
+                : {
+                    ...fapiUnpreparedVerification(),
+                    ...fapiVerification(`from_${external.strategy}`, { status: 'verified' }),
+                    next_action: '',
+                  },
+            },
+          },
+          'oauth_callback',
+        ),
+      ),
     );
   };
 
@@ -676,9 +687,7 @@ export function signUpHandlers(
       if (applied instanceof HttpResponse) {
         return applied;
       }
-      // clerk_go runProtectCheck returns a pending, unexpired check unchanged and asks Protect again otherwise.
-      const pending = applied.protect_check && !isExpired(applied.protect_check);
-      return store(settle(pending ? applied : issueProtectCheck(applied, 'update')));
+      return store(settle(runProtectCheck(applied, 'update')));
     }),
     http.post(fapiUrl('/v1/client/sign_ups/:id/prepare_verification'), async ({ params, request }) => {
       const signUp = current(params.id);
