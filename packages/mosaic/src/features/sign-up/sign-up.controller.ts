@@ -1,5 +1,5 @@
 import type { SignUpNextStep } from '@clerk/shared/internal/clerk-js/nextStep';
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { usePendingAction } from '../../hooks/use-pending-action';
 import type { ErrorDescription } from '../../localization';
@@ -75,11 +75,11 @@ function screenFor(route: SignUpRoute | undefined, flow: SignUpFlowModel): SignU
   if (route === undefined || route === 'enterpriseConnections') {
     return 'startOver';
   }
+  if (flow.actionBlocked && (route === 'start' || route === 'protectCheck' || route === 'continueProtectCheck')) {
+    return 'actionBlocked';
+  }
   if (route !== 'start') {
     return route;
-  }
-  if (flow.actionBlocked) {
-    return 'actionBlocked';
   }
   return flow.mode === 'public' ? 'start' : flow.mode;
 }
@@ -108,6 +108,7 @@ export function useSignUpController(
 ): SignUpControllerResult {
   const { route, go } = useRouterScope(signUpRoutes, { ...options, root: 'start' });
   const actions = usePendingAction<'startOver'>();
+  const expiredProtectReloads = useRef(0);
   const errorText = useErrorText();
   const liveStep = liveModel.flow.step;
   const isNextScreenLoading = liveStep.type === 'leaving' || (liveStep.type === 'task' && !isTaskReady);
@@ -176,7 +177,7 @@ export function useSignUpController(
     continue: details.continue,
     verifyEmail: { ...verify, verification: verification.email },
     verifyPhone: { ...verify, verification: verification.phone },
-    protectCheck: { protect: model.protect, onNext: next },
+    protectCheck: { protect: model.protect, onNext: next, expiredReloads: expiredProtectReloads },
     restricted: {
       globalErrorMessage: details.error ?? flowError,
       onEmailSupport: navigation.emailSupport,

@@ -128,6 +128,8 @@ export interface SignUpWalletsScreen {
 export interface SignUpProtectScreen {
   protect: SignUpProtectModel;
   onNext: (step: SignUpNextStep) => void;
+  /** Expired-challenge reloads so far. Kept above the screen, which remounts for each reissued challenge. */
+  expiredReloads: { current: number };
 }
 
 export interface SignUpViewProps {
