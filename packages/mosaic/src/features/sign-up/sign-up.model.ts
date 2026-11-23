@@ -351,12 +351,10 @@ export function useSignUpModel({
 
   const step = flowStep();
   const phoneChannel = signUp.verifications.phoneNumber.channel;
-  const preferredPhoneChannel = (): PhoneCodeChannel | undefined => {
+  const preferredPhoneChannel = (phoneNumber: string | undefined): PhoneCodeChannel | undefined => {
     const { preferredChannels } = environment.authConfig;
     const preferred =
-      signUp.phoneNumber && preferredChannels
-        ? getPreferredPhoneCodeChannelByCountry(signUp.phoneNumber, preferredChannels)
-        : null;
+      phoneNumber && preferredChannels ? getPreferredPhoneCodeChannelByCountry(phoneNumber, preferredChannels) : null;
     return preferred && preferred !== 'sms' ? preferred : undefined;
   };
 
@@ -451,13 +449,18 @@ export function useSignUpModel({
         return provider ? [{ id: channel, name: provider.name, iconUrl: iconImageUrl(channel) }] : [];
       }),
       create: async (values, { channel } = {}) => {
-        await save(() => run(() => signUp.create(details(values))), DETAILS_FIELDS, usernameBounds);
-        const sendOver = signUp.unverifiedFields.includes('phone_number')
-          ? (channel ?? preferredPhoneChannel())
-          : undefined;
-        if (sendOver) {
-          await save(() => run(() => signUp.verifications.sendPhoneCode({ channel: sendOver })), ['phoneNumber']);
-        }
+        const sendOver = channel ?? preferredPhoneChannel(values.phoneNumber);
+        await save(
+          () =>
+            run(() =>
+              signUp.create({
+                ...details(values),
+                ...(sendOver ? { strategy: 'phone_code' as const, channel: sendOver } : {}),
+              }),
+            ),
+          DETAILS_FIELDS,
+          usernameBounds,
+        );
         return next(signUp);
       },
       update: async values => {
