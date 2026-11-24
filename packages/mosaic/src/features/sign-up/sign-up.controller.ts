@@ -1,5 +1,5 @@
 import type { SignUpNextStep } from '@clerk/shared/internal/clerk-js/nextStep';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 import { usePendingAction } from '../../hooks/use-pending-action';
 import type { ErrorDescription } from '../../localization';
@@ -103,8 +103,6 @@ export function useSignUpController(
 ): SignUpControllerResult {
   const { route, go } = useRouterScope(signUpRoutes, { ...options, root: 'start' });
   const actions = usePendingAction<'startOver'>();
-  // Counted here because the Protect screen remounts for each challenge Clerk reissues.
-  const expiredProtectReloads = useRef(0);
   const errorText = useErrorText();
   const liveStep = liveModel.flow.step;
   const isNextScreenLoading = liveStep.type === 'leaving' || (liveStep.type === 'task' && !isTaskReady);
@@ -173,16 +171,7 @@ export function useSignUpController(
     continue: details.continue,
     verifyEmail: { ...verify, verification: verification.email },
     verifyPhone: { ...verify, verification: verification.phone },
-    protectCheck: {
-      protect: {
-        challengeId: model.protect.challengeId,
-        resolve: options => model.protect.resolve({ ...options, expiredReloads: expiredProtectReloads }),
-      },
-      onNext: next,
-      resetExpiredReloads: () => {
-        expiredProtectReloads.current = 0;
-      },
-    },
+    protectCheck: { protect: model.protect, onNext: next },
     restricted: {
       globalErrorMessage: details.error ?? flowError,
       onEmailSupport: navigation.emailSupport,
