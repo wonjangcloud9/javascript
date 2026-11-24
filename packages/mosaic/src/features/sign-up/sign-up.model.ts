@@ -97,13 +97,15 @@ export interface SignUpVerificationModel {
   verify: (code: string) => Promise<SignUpNextStep>;
 }
 
+export interface SignUpProtectResolveOptions {
+  container: HTMLDivElement;
+  setWidgetVisible: (visible: boolean) => Promise<void>;
+  expiredReloads: { current: number };
+}
+
 export interface SignUpProtectModel {
   challengeId: string | undefined;
-  resolve: (options: {
-    container: HTMLDivElement;
-    setWidgetVisible: (visible: boolean) => Promise<void>;
-    expiredReloads: { current: number };
-  }) => Promise<SignUpNextStep>;
+  resolve: (options: SignUpProtectResolveOptions) => Promise<SignUpNextStep>;
 }
 
 export interface SignUpReadyModel {

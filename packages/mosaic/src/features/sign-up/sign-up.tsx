@@ -101,7 +101,7 @@ function SignUpFlow({
         />
       }
       applicationName={applicationName}
-      applicationLogoUrl={applicationLogoUrl}
+      logo={logo}
       taskChooseOrganization={<TaskChooseOrganizationContent model={task} />}
     />
   );
